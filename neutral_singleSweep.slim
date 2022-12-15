@@ -1,0 +1,104 @@
+//Slim script to run a chromosomal region with 128 genes, each comprised of 4 588bp exons, 3 563bp introns, and separated by a 3811bp intergenic region
+//Demographic changes are instantaneous at a fixed time of change.
+//Get DFE realisations from file: f=($(grep -w {sim1} DFE_realisations_{d_f0}.txt | awk '{print $2,$3,$4,$5}'))
+//How to run:
+//slim -d d_seed=1 -d "d_folder='/home/vivak/sweep_detection/'" -d "d_simID='1Mb'" -d "d_repID='1'" -d  -d d_ben_Nes=100 demog_DFE_singleSweep.slim
+initialize()
+{
+
+    setSeed(d_seed);
+    
+    //define constants:
+    //defineConstant("scale", d_scaling_factor);
+    defineConstant("Na", 2000); //Ancestral population size
+    defineConstant("Nc", 2000); //Current population size
+    //defineConstant("Nout", asInteger(round(d_Ncur/scale)*d_Nout)); //Outgroup population size
+    
+	 defineConstant("ben_Nes", d_ben_Nes);
+    initializeMutationRate(1.96e-6);
+    //Ner=0.01624
+    initializeRecombinationRate(0.01624/Na);
+    
+    // mutation types: 
+    //2Nes = [0, -1, -10, -100, -10000], s = [0.0, -0.0001, -0.001, -0.01, -1]
+    initializeMutationType("m0", 1.0, "f", ben_Nes/(Na*2)); //beneficial, 2Nes = ben_Nes
+    initializeMutationType("m1", 0.5, "f", 0.0); //selectively neutral      
+    
+    // Genomic elements:
+    initializeGenomicElementType("g1", m1, 1.0);
+	 initializeGenomicElement(g1, 1, 1000000);
+}
+
+// part 1 (burn-in for gen_burnin (=10Na) generations): create a population of Na individuals
+1{
+	 // save this run's identifier, used to save and restore
+	 defineConstant("simID", getSeed());
+    sim.addSubpop("p1", Na);
+    //Set variables s1 and s2 for gen_burnin and gen_stop
+    //sim.rescheduleScriptBlock(s1, start=gen_burnin, end=gen_burnin);
+}
+
+// part 2: instantaneous population size change: reaches size N_cur
+20000 late(){
+    newSize = Nc;
+    p1.setSubpopulationSize(asInteger(newSize));
+    
+    // save the state of the simulation
+	sim.outputFull("/tmp/slim_" + simID + ".txt");
+	
+	target = sample(p1.genomes, 1);
+	target.addNewDrawnMutation(m0, 500000);
+    
+}
+
+
+20000:200000 late() {
+	//print(sim.generation);
+	if (sim.countOfMutationsOfType(m2) == 0)
+	{
+		fixed = (sum(sim.substitutions.mutationType == m2) == 1);
+		
+		
+		if (fixed)
+		{
+			//sim.rescheduleScriptBlock(s4, start=sim.generation + 10, end=sim.generation + 10);
+		   p1.outputMSSample(100, F, "*", d_folder + "/" + d_simID + "_rep" + d_repID + ".ms", F);
+	      //print size of population to check
+	      print(p1.individualCount);
+	      print(sim.generation);
+	
+	      //print all fixed mutations
+	      sim.outputFixedMutations(d_folder + "/" + d_simID + "_rep" + d_repID + ".fixed", append=F);
+	      sim.simulationFinished();
+			print(simID + ": FIXED\n");
+
+		}
+		else
+		{
+			print(simID + ": LOST - RESTARTING\n");
+			
+			// go back to generation 1000
+			sim.readFromPopulationFile("/tmp/slim_" + simID + ".txt");
+			
+			// start a newly seeded run
+			setSeed(rdunif(1, 0, asInteger(2^62) - 1));
+			
+			// re-introduce the sweep mutation
+			target = sample(p1.genomes, 1);
+			target.addNewDrawnMutation(m0, 500000);
+		}
+	}
+}
+
+//print genotypes of 100 individuals selected randomly without replacement:
+//gen_stop = gen_burnin + time of change
+//s4 late() {
+//    p1.outputMSSample(100, F, "*", d_folder + "/" + d_simID + "_rep" + d_repID + ".ms", F);
+//    //print size of population to check
+//    print(p1.individualCount);
+//
+//    //print all fixed mutations
+//    sim.outputFixedMutations(d_folder + "/" + d_simID + "_rep" + d_repID + ".fixed", append=F);
+//    sim.simulationFinished();
+//    
+//}
